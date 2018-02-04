@@ -1,0 +1,490 @@
+<dom-module id="my-ha-chart-base">
+  <template>
+    <style>
+      .chartHeader {
+        padding: 6px 0 0 0;
+      }
+      .chartHeader div {
+        float: left;
+      }
+      .chartTitle {
+        margin: 0 12px 0 8px;
+      }
+      :root{
+        user-select: none;
+        -moz-user-select: none;
+        -webkit-user-select: none;
+        -ms-user-select: none;
+      }
+      .chartTooltip {
+        opacity: 1;
+        position: absolute;
+        background: rgba(0, 0, 0, .7);
+        color: white;
+        border-radius: 3px;
+        pointer-events: none;
+        transform: translate(-50%, 0);
+        z-index: 1000;
+        width: 200px;
+      }
+      .chartLegend ul,
+      .chartTooltip ul {
+        display: inline-block;
+        padding: 0 0px;
+        margin: 0 0 8px 0;
+        width: 100%
+      }
+      .chartTooltip li {
+        display: block;
+        white-space: pre-line;
+      }
+      .chartTooltip .title {
+        text-align: center;
+      }
+      .chartLegend li {
+        display: inline-block;
+        padding: 0 5px;
+        max-width: 50%;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow: hidden;
+        box-sizing: border-box;
+      }
+      .chartLegend li.hidden {
+        text-decoration: line-through;
+      }
+      .chartLegend em,
+      .chartTooltip em {
+        border-radius: 5px;
+        display: inline-block;
+        height: 10px;
+        margin-right: 6px;
+        width: 10px;
+      }
+    </style>
+    <div class="chartHeader">
+      <div class="chartTitle">[[unit]]</div>
+      <div class="chartLegend">
+        <ul>
+          <template is="dom-repeat" items="[[metas]]">
+            <li data-lid$="[[itemsIndex]]" on-click="_legendClick" class$="[[item.hidden]]">
+              <em style$="background-color:[[item.bgColor]]"></em>
+              [[item.label]]
+            </li>
+          </template>
+        </ul>
+      </div>
+    </div>
+    <div id="chartTarget" style="height:0; width:100%">
+      <canvas id="chartCanvas"></canvas>
+      <div class$="chartTooltip [[tooltip.yAlign]]"
+      style$="opacity:[[tooltip.opacity]]; top:[[tooltip.top]]; left:[[tooltip.left]]; padding:[[tooltip.yPadding]]px [[tooltip.xPadding]]px">
+        <div class="title">[[tooltip.title]]</div>
+        <div>
+          <ul >
+            <template is="dom-repeat" items="[[tooltip.lines]]">
+              <li><em style$="background-color:[[item.bgColor]]"></em>[[item.text]]</li>
+            </template>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </template>
+</dom-module>
+<script src="../../../bower_components/moment/moment.js"></script>
+<script src="../../../bower_components/chart.js/dist/Chart.min.js"></script>
+<script src="../../../bower_components/chartjs-chart-timeline/timeline.js"></script>
+<script>
+// Use minified(Chart.min.js) version to fix strange color after uglify
+// eslint-disable-next-line no-unused-vars
+/* global Chart moment Color */
+(function () {
+  Chart.Interaction.modes.neareach = function (chart, e, options) {
+    var getRange = {
+      x: (a, b) => Math.abs(a.x - b.x),
+      y: (a, b) => Math.abs(a.y - b.y),
+      // eslint-disable-next-line no-restricted-properties
+      xy: (a, b) => Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2),
+    };
+    var getRangeMax = {
+      x: r => r,
+      y: r => r,
+      xy: r => r * r,
+    };
+    var position;
+    if (e.native) {
+      position = {
+        x: e.x,
+        y: e.y
+      };
+    } else {
+      position = Chart.helpers.getRelativePosition(e, chart);
+    }
+    var elements = [];
+    var elementsRange = [];
+    var datasets = chart.data.datasets;
+    var meta;
+    options.axis = options.axis || 'xy';
+    var rangeFunc = getRange[options.axis];
+    var rangeMaxFunc = getRangeMax[options.axis];
+
+    for (var i = 0, ilen = datasets.length; i < ilen; ++i) {
+      if (!chart.isDatasetVisible(i)) {
+        continue;
+      }
+
+      meta = chart.getDatasetMeta(i);
+      for (var j = 0, jlen = meta.data.length; j < jlen; ++j) {
+        var element = meta.data[j];
+        if (!element._view.skip) {
+          var vm = element._view;
+          var range = rangeFunc(vm, position);
+          var oldRange = elementsRange[i];
+          if (range < rangeMaxFunc(vm.radius + vm.hitRadius)) {
+            if (oldRange === undefined || oldRange > range) {
+              elementsRange[i] = range;
+              elements[i] = element;
+            }
+          }
+        }
+      }
+    }
+    var ret = elements.filter(function (n) { return n !== undefined; });
+    return ret;
+  };
+
+  // Fix infinite loop bug in Chart.js 2.7.1
+  var x = Chart.scaleService.constructors.time.prototype;
+  x._getLabelCapacity = x.getLabelCapacity;
+  x.getLabelCapacity = function () {
+    // eslint-disable-next-line prefer-rest-params
+    var ret = this._getLabelCapacity.apply(this, arguments);
+    return ret > 0 ? ret : 1;
+  };
+}());
+
+class MyHaChartBase extends
+  Polymer.mixinBehaviors([Polymer.IronResizableBehavior], Polymer.Element) {
+  get chart() {
+    return this._chart;
+  }
+  static get is() { return 'my-ha-chart-base'; }
+  static get properties() {
+    return {
+      publish: {
+        type: Boolean,
+        observer: 'onPropsChange'
+      },
+      data: {
+        type: Object,
+        observer: 'onPropsChange'
+      },
+    };
+  }
+  connectedCallback() {
+    super.connectedCallback();
+    this.connected = true;
+    this.addEventListener('iron-resize', () => {
+      setTimeout(this.resizeChart.bind(this), 1);
+    });
+    if (!this._chart) {
+      this.onPropsChange();
+    }
+  }
+  onPropsChange() {
+    if (!this.connected || !this.publish || !this.data) {
+      return;
+    }
+    this.drawChart();
+  }
+  _customTooltips(tooltip) {
+    this.tooltip = this.tooltip || {
+      opacity: 0,
+    };
+    // Hide if no tooltip
+    if (tooltip.opacity === 0) {
+      this.set(['tooltip', 'opacity'], 0);
+      return;
+    }
+    // Set caret Position
+    if (tooltip.yAlign) {
+      this.set(['tooltip', 'yAlign'], tooltip.yAlign);
+    } else {
+      this.set(['tooltip', 'yAlign'], 'no-transform');
+    }
+    function getBody(bodyItem) {
+      return bodyItem.lines;
+    }
+    var title = tooltip.title ? tooltip.title[0] || '' : '';
+    var bodyLines = tooltip.body.map(getBody);
+    var str1;
+    if (title instanceof Date) {
+      str1 = moment(title).format('L LTS');
+    } else if (title instanceof moment) {
+      str1 = title.format('L LTS');
+    } else {
+      str1 = title;
+    }
+    this.set(['tooltip', 'title'], str1);
+    // Set Text
+    if (tooltip.body) {
+      this.set(['tooltip', 'lines'], bodyLines.map(function (body, i) {
+        var colors = tooltip.labelColors[i];
+        return {
+          color: colors.borderColor,
+          bgColor: colors.backgroundColor,
+          text: body.join('\n'),
+        };
+      }));
+    }
+    var positionX = this._chart.canvas.offsetLeft + tooltip.caretX;
+    var positionY = this._chart.canvas.offsetTop + tooltip.caretY;
+    var parentWidth = this.$.chartTarget.clientWidth;
+    if (positionX + 100 > parentWidth) {
+      positionX = parentWidth - 100;
+    } else if (positionX < 100) {
+      positionX = 100;
+    }
+    // Display, position, and set styles for font
+    this.set(['tooltip', 'opacity'], 1);
+    this.set(['tooltip', 'left'], positionX + 'px');
+    this.set(['tooltip', 'top'], positionY + 'px');
+    this.set(['tooltip', 'yPadding'], tooltip.yPadding);
+    this.set(['tooltip', 'xPadding'], tooltip.xPadding);
+  }
+  _legendClick(event) {
+    event = event || window.event;
+    var target = event.target || event.srcElement;
+    while (target.nodeName !== 'LI') {
+      target = target.parentElement;
+    }
+    var index = target.getAttribute('data-lid');
+
+    var meta = this._chart.getDatasetMeta(index);
+    meta.hidden = meta.hidden === null ? !this._chart.data.datasets[index].hidden : null;
+    this.set(['metas', index, 'hidden'], this._chart.isDatasetVisible(index) ? null : 'hidden');
+    this._chart.update();
+  }
+  _drawLegend() {
+    var chart = this._chart;
+    this.set('metas', this._chart.data.datasets.map(function (x, i) {
+      return {
+        label: x.label,
+        color: x.color,
+        bgColor: x.backgroundColor,
+        hidden: chart.isDatasetVisible(i)
+      };
+    }));
+    this.set('unit', this.data.unit);
+  }
+  drawChart() {
+    var data = this.data.data;
+    var ctx = this.$.chartCanvas;
+
+
+    if ((!data.datasets || !data.datasets.length) && !this._chart) {
+      return;
+    }
+    if (this.data.type !== 'timeline' && data.datasets.length > 0) {
+      var cnt = 0;
+      cnt = data.datasets.length;
+      var colors = HaChartBase.getColorList(cnt);
+      for (var loopI = 0; loopI < cnt; loopI++) {
+        data.datasets[loopI].borderColor = colors[loopI].rgbString();
+        data.datasets[loopI].backgroundColor = colors[loopI].alpha(0.6).rgbaString();
+      }
+    }
+
+    if (this._chart) {
+      this._customTooltips({ opacity: 0 });
+      this._chart.data = data;
+      this._chart.update({ duration: 0 });
+      if (this._isTimeline !== true && this.data.legend === true) {
+        this._drawLegend();
+      }
+      this.resizeChart();
+    } else {
+      if (!data.datasets) {
+        return;
+      }
+      var colorList = this.data.colors ? this.data.colors.staticColors : undefined;
+      var colorIndex = this.data.colors ? this.data.colors.staticColorIndex : undefined;
+      this._colorFunc = HaChartBase.getColorGenerator(colorList, colorIndex);
+      this._customTooltips({ opacity: 0 });
+      var options = {
+        responsive: true,
+        maintainAspectRatio: false,
+        colorFunction: this._colorFunc,
+        animation: {
+          duration: 0,
+        },
+        hover: {
+          animationDuration: 0,
+        },
+        responsiveAnimationDuration: 0,
+        tooltips: {
+          enabled: false,
+          custom: this._customTooltips.bind(this),
+        },
+        legend: {
+          display: false,
+        },
+        line: {
+          spanGaps: true,
+        },
+      };
+      options = Chart.helpers.merge(options, this.data.options);
+      if (this.data.type === 'timeline') {
+        this._isTimeline = true;
+        if (data.datasets.length === 1) {
+          if (options.scales.yAxes[0].ticks) {
+            options.scales.yAxes[0].ticks.display = false;
+          } else {
+            options.scales.yAxes[0].ticks = { display: false };
+          }
+        }
+      }
+      this.$.chartTarget.style.height = '160px';
+      this.$.chartTarget.height = '160px';
+      var chartData = {
+        type: this.data.type,
+        data: this.data.data,
+        options: options
+      };
+      var me = this;
+      // this._chart = new Chart(ctx, chartData);
+      // Async resize after dom update
+      me._chart = new Chart(ctx, chartData);
+      if (this._isTimeline !== true && this.data.legend === true) {
+        this._drawLegend();
+      }
+      setTimeout(function () {
+        me.resizeChart.bind(me);
+      }, 1);
+    }
+  }
+  resizeChart() {
+    if (!this._chart) return;
+    var options = this.data;
+    var data = options.data;
+
+    var chartTarget = this.$.chartTarget;
+
+    if (this._isTimeline) {
+      if (data.datasets.length === 0) {
+        chartTarget.style.height = '0px';
+        chartTarget.height = '0px';
+        this._chart.resize();
+      } else {
+        var axis = this._chart.boxes.filter(x => x.position === 'bottom')[0];
+        if (axis && axis.height > 0) {
+          this._axisHeight = axis.height;
+        }
+        if (!this._axisHeight) {
+          chartTarget.style.height = '100px';
+          chartTarget.height = '100px';
+          this._chart.resize();
+          axis = this._chart.boxes.filter(x => x.position === 'bottom')[0];
+          if (axis && axis.height > 0) {
+            this._axisHeight = axis.height;
+          }
+        }
+        if (this._axisHeight) {
+          var cnt = data.datasets.length;
+          var targetHeight = ((30 * cnt) + this._axisHeight) + 'px';
+          if (chartTarget.style.height !== targetHeight) {
+            chartTarget.style.height = targetHeight;
+            chartTarget.height = targetHeight;
+          }
+          this._chart.resize();
+        }
+      }
+    } else {
+      this._chart.resize();
+    }
+  }
+  static getColorList(count) {
+    var processL = false;
+    if (count > 10) {
+      processL = true;
+      count = Math.ceil(count / 2);
+    }
+    var h1 = 360 / count;
+    var result = [];
+    for (var loopI = 0; loopI < count; loopI++) {
+      result[loopI] = Color().hsl(h1 * loopI, 80, 38);
+      if (processL) {
+        result[loopI + count] = Color().hsl(h1 * loopI, 80, 62);
+      }
+    }
+    return result;
+  }
+  static getColorGenerator(staticColors, startIndex) {
+    // Known colors for static data,
+    // should add for very common state string manually.
+    // Distribute the color data like complete binary tree
+    function getColorRange(x) {
+      if (x === 0) return 0;
+      if (x === 1) return 0.5;
+      var y = Math.floor(Math.log(x) / Math.LN2);
+      // eslint-disable-next-line no-restricted-properties
+      var e = Math.pow(2, y);
+      var n = x - e;
+      var a;
+      if (y % 2 === 1) {
+        if (n % 2 === 0) {
+          a = n + 1;
+        } else {
+          a = n + e;
+        }
+      } else {
+        // eslint-disable-next-line no-lonely-if
+        if (n % 2 === 0) {
+          a = e - n - 1;
+        } else {
+          a = (e + e) - n;
+        }
+      }
+      return a / (e + e);
+    }
+    function getColorIndex(idx) {
+      var hIndex = Math.floor(idx / 6);
+      var h1 = getColorRange(hIndex);
+      var c1 = (h1 + (idx % 3)) * 120;
+      var l1 = idx % 6 < 3 ? 62 : 38;
+      return Color().hsl(c1, 75, l1);
+    }
+    var colorDict = {};
+    var colorIndex = 0;
+    if (startIndex > 0) colorIndex = startIndex;
+    if (staticColors) {
+      Object.keys(staticColors).forEach(function (c) {
+        var c1 = staticColors[c];
+        if (isFinite(c1)) {
+          colorDict[c.toLowerCase()] = getColorIndex(c1);
+        } else {
+          colorDict[c.toLowerCase()] = Color(staticColors[c]);
+        }
+      });
+    }
+    // Custom color assign
+    function getColor(name) {
+      var ret;
+      if (name === null) return Color().hsl(0, 40, 38);
+      if (name === undefined) return Color().hsl(120, 40, 38);
+      var name1 = name.toLowerCase();
+      if (ret === undefined) {
+        ret = colorDict[name1];
+      }
+      if (ret === undefined) {
+        ret = getColorIndex(colorIndex);
+        colorIndex++;
+        colorDict[name1] = ret;
+      }
+      return ret;
+    }
+    return getColor;
+  }
+}
+customElements.define(MyHaChartBase.is, MyHaChartBase);
+</script>

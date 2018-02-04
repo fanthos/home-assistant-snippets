@@ -1,0 +1,161 @@
+<link rel='import' href='./ha-chart-base.html'>
+
+<dom-module id='my-ha-history-chart-timeline'>
+  <template>
+      <ha-chart-base publish data="[[chartData]]"></ha-chart-base>
+  </template>
+</dom-module>
+<script>
+'use strict';
+// state: window.hassUtil.computeStateDisplay(localize, state, language),
+class MyHaHistoryChartTimeline extends window.hassMixins.LocalizeMixin(Polymer.Element) {
+  static get is() { return 'my-ha-history-chart-timeline'; }
+  static get properties() {
+    return {
+      data: {
+        type: Object,
+        observer: 'dataChanged',
+      },
+      noSingle: Boolean,
+      endTime: Date,
+    };
+  }
+
+  static get observers() {
+    return ['dataChanged(data, endTime, localize, language)'];
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    this._isAttached = true;
+    this.drawChart();
+  }
+
+  dataChanged() {
+    this.drawChart();
+  }
+
+  drawChart() {
+    // if (!this.localize || !this.language || !this.data || !this._isAttached) return;
+    var staticColors = {
+      on: 1,
+      off: 0,
+      unavailable: '#a0a0a0',
+      unknown: '#606060',
+      idle: 2
+    };
+    var newStaticColors = {};
+    var stateHistory = this.data;
+    var startTime;
+    var endTime;
+
+    if (!this._isAttached) {
+      return;
+    }
+
+    if (!stateHistory) {
+      stateHistory = [];
+    }
+
+    startTime = new Date(stateHistory.reduce(function (minTime, stateInfo) {
+      return Math.min(minTime, new Date(stateInfo.data[0].last_changed));
+    }, new Date()));
+
+    // end time is Math.max(startTime, last_event)
+    endTime = this.endTime ||
+      new Date(stateHistory.reduce(function (maxTime, stateInfo) {
+        return Math.max(
+          maxTime,
+          new Date(stateInfo.data[stateInfo.data.length - 1].last_changed)
+        );
+      }, startTime));
+
+    if (endTime > new Date()) {
+      endTime = new Date();
+    }
+
+    for (const k in staticColors) {
+      let v = staticColors[k];
+      newStaticColors[k] = v;
+      let localk = this.localize(`state.history_graph.${k}`) || k;
+      newStaticColors[localk] = v;
+    }
+
+    var labels = [];
+    var datasets = [];
+    // stateHistory is a list of lists of sorted state objects
+    stateHistory.forEach(function (stateInfo) {
+      var entityDisplay;
+      var newLastChanged;
+      var prevState = null;
+      var prevLastChanged = startTime;
+      var dataRow = [];
+
+      // if (stateInfo.data.length === 0) return;
+
+      entityDisplay = stateInfo.name;
+
+      stateInfo.data.forEach(function (state) {
+        var timeStamp = new Date(state.last_changed);
+        var newState = state.state;
+        if (newState === undefined || newState === '') {
+          newState = null;
+        }
+        if (timeStamp > endTime) {
+          // Drop datapoints that are after the requested endTime. This could happen if
+          // endTime is 'now' and client time is not in sync with server time.
+          return;
+        }
+        if (prevState !== null && newState !== prevState) {
+          newLastChanged = new Date(state.last_changed);
+
+          dataRow.push([prevLastChanged, newLastChanged, prevState]);
+
+          prevState = newState;
+          prevLastChanged = newLastChanged;
+        } else if (prevState === null) {
+          prevState = newState;
+          prevLastChanged = new Date(state.last_changed);
+        }
+      });
+
+      if (prevState !== null) {
+        dataRow.push([prevLastChanged, endTime, prevState]);
+      }
+      datasets.push({ data: dataRow });
+      labels.push(entityDisplay);
+    });
+
+    var chartOptions = {
+      type: 'timeline',
+      options: {
+        scales: {
+          xAxes: [{
+            ticks: {
+              major: {
+                fontStyle: 'bold',
+              },
+            },
+          }],
+          yAxes: [{
+            afterSetDimensions: function (yaxe) {
+              yaxe.maxWidth = yaxe.chart.width * 0.18;
+            }
+          }],
+        },
+      },
+      data: {
+        labels: labels,
+        datasets: datasets
+      },
+      colors: {
+        staticColors: newStaticColors,
+        staticColorIndex: 3,
+      }
+    };
+    this.chartData = chartOptions;
+  }
+}
+customElements.define(MyHaHistoryChartTimeline.is, MyHaHistoryChartTimeline);
+
+</script>
