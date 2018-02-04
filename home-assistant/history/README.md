@@ -3,7 +3,7 @@ Instead of Google Charts.
 
 ## Usage:
 
-Put `myhistory.html` to <Conf Dir>/panels/.
+Put `myhistory.html` to `<Conf Dir>/panels/`.
 Append the following to `configuration.yaml`
 
 ```yaml
@@ -12,3 +12,9 @@ panel_custom:
     sidebar_title: My History
     url_path: myhistory
 ```
+
+### License:
+
+* Chart.js
+* moment.js
+* chartjs-chart-timeline
