@@ -1,0 +1,52 @@
+#!/usr/bin/lua
+
+MQTT_SERVER = "192.168.101.24"
+MQTT_USER = nil
+MQTT_PWD = nil
+MQTT_PREFIX = "tracker/dev1/"
+
+require "ubus"
+require "nixio"
+mqtt = require "mosquitto"
+local conn = ubus.connect()
+local objs = conn:objects()
+
+local client = mqtt.new()
+if not not MQTT_USER then
+    client:login_set(MQTT_USER, MQTT_PWD)
+end
+client:connect(MQTT_SERVER)
+
+while true do
+    err, ret = pcall(function()
+        if client:loop() == nil then
+            client:reconnect()
+            if client:loop() == nil then
+                return false
+            end
+        end
+        for i, n in ipairs(objs) do
+            local signatures = conn:signatures(n)
+            if n:sub(1, 8) == "hostapd." then
+                local iwstat = conn:call(n, "get_clients", {})
+                local stalist = iwstat["clients"]
+                for k, t in pairs(stalist) do
+                    if t["authorized"] == true then
+                        if client:publish(MQTT_PREFIX .. k, "home", 1) == nil then
+                            return false
+                        end
+                    end
+                end
+            end
+        end
+        return true
+    end)
+    if err and ret then
+        nixio.nanosleep(15)
+    else
+        nixio.nanosleep(5)
+    end
+end
+
+conn:close()
+client:disconnect()

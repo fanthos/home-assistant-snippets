@@ -1,0 +1,7 @@
+Package: mqtt-tracker
+Version: 0.2.19-1
+Depends: libc
+Section: luci
+Architecture: all
+Installed-Size: 2048
+Description: Device tracker to publish connected device info to MQTT server
