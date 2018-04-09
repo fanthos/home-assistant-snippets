@@ -1,13 +1,17 @@
 #!/usr/bin/lua
 
-MQTT_SERVER = "192.168.101.24"
-MQTT_USER = nil
-MQTT_PWD = nil
-MQTT_PREFIX = "tracker/dev1/"
-
+require "uci"
 require "ubus"
 require "nixio"
 mqtt = require "mosquitto"
+
+x = uci.cursor()
+
+MQTT_SERVER = x:get("mqtt-tracker", "conf", "server")
+MQTT_PREFIX = x:get("mqtt-tracker", "conf", "prefix")
+MQTT_USER = x:get("mqtt-tracker", "conf", "user")
+MQTT_PWD = x:get("mqtt-tracker", "conf", "pwd")
+
 local conn = ubus.connect()
 local objs = conn:objects()
 
