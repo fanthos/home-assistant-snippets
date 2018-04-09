@@ -1,8 +1,7 @@
-# History panel using Chart.js.
-Instead of Google Charts.
+# MQTT Device Tracker for LEDE
+Run device tracker on LEDE/Openwrt and report connected device to MQTT broker.
 
 ## Usage:
-
 Put `myhistory.html` to `<Conf Dir>/panels/`.
 Append the following to `configuration.yaml`
 
@@ -12,6 +11,8 @@ panel_custom:
     sidebar_title: My History
     url_path: myhistory
 ```
+# MQTT Device Tracker for LEDE
+Run device tracker on LEDE/Openwrt and report connected device to MQTT broker.
 
 ### License:
 
