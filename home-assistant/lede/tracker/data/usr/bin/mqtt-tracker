@@ -7,19 +7,23 @@ mqtt = require "mosquitto"
 
 x = uci.cursor()
 
-MQTT_SERVER = x:get("mqtt-tracker", "conf", "server")
-MQTT_PREFIX = x:get("mqtt-tracker", "conf", "prefix")
-MQTT_USER = x:get("mqtt-tracker", "conf", "user")
-MQTT_PWD = x:get("mqtt-tracker", "conf", "pwd")
+mqtt_server = x:get("mqtt-tracker", "conf", "server")
+mqtt_prefix = x:get("mqtt-tracker", "conf", "prefix")
+mqtt_payload = x:get("mqtt-tracker", "conf", "payload")
+mqtt_user = x:get("mqtt-tracker", "conf", "user")
+mqtt_pwd = x:get("mqtt-tracker", "conf", "pwd")
+
+mqtt_prefix = mqtt_prefix or ""
+mqtt_payload = mqtt_payload or "home"
 
 local conn = ubus.connect()
 local objs = conn:objects()
 
 local client = mqtt.new()
-if not not MQTT_USER then
-    client:login_set(MQTT_USER, MQTT_PWD)
+if not mqtt_user == nil then
+    client:login_set(mqtt_user, mqtt_pwd)
 end
-client:connect(MQTT_SERVER)
+client:connect(mqtt_server)
 
 while true do
     err, ret = pcall(function()
@@ -36,7 +40,7 @@ while true do
                 local stalist = iwstat["clients"]
                 for k, t in pairs(stalist) do
                     if t["authorized"] == true then
-                        if client:publish(MQTT_PREFIX .. k, "home", 1) == nil then
+                        if client:publish(mqtt_prefix .. k, mqtt_payload, 1) == nil then
                             return false
                         end
                     end
