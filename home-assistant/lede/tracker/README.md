@@ -17,7 +17,6 @@ Edit `/etc/config/mqtt-tracker`:
 config mqtt conf
         option server '192.168.101.24'
         option prefix 'tracker/dev1/'
-        option payload 'home'
         option user 'mqtt-user'
         option pwd 'mqtt-pwd'
 ```
@@ -39,13 +38,13 @@ device_tracker:
 
 ## Usage:
 安装 `lua-mosquitto` 和 `libmosquitto` （如没有使用SSL，建议安装 `libmosquitto-nossl`）：
-```bash
+```shell
 opkg update
 opkg install libmosquitto-nossl
 opkg install --nodeps lua-mosquitto
 ```
 将 mqtt-tracker.ipk 放在 /tmp/ 内，然后运行：
-```bash
+```shell
 opkg install /tmp/mqtt-tracker.ipk
 ```
 修改 `/etc/config/mqtt-tracker`：
@@ -53,12 +52,11 @@ opkg install /tmp/mqtt-tracker.ipk
 config mqtt conf
         option server '192.168.101.24'
         option prefix 'tracker/dev1/'
-        option payload 'home'
         option user 'mqtt-user'
         option pwd 'mqtt-pwd'
 ```
 启用并重新启动服务：
-```bash
+```shell
 /etc/init.d/mqtt-tracker enable
 /etc/init.d/mqtt-tracker restart
 ```
