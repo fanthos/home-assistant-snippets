@@ -1,0 +1,7 @@
+Package: tv-sharp
+Version: 0.0.1
+Depends: libc
+Section: luci
+Architecture: all
+Installed-Size: 2048
+Description: Control Sharp TV using RS232

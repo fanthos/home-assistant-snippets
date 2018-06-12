@@ -1,0 +1,7 @@
+{
+    // "files.associations": {
+    //     "**/bin/mqtt-tracker": "lua",
+    //     "**/config/mqtt-tracker": "plaintext",
+    //     "**/init.d/mqtt-tracker": "shellscript"
+    // },
+}

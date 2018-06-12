@@ -1,0 +1,162 @@
+#!/usr/bin/lua
+
+require "uci"
+require "nixio"
+mqtt = require "mosquitto"
+rs232 = require "luars232"
+
+function dbg(x)
+    io.stderr:write(x)
+end
+
+x = uci.cursor()
+
+mqtt_server = x:get("tv-sharp", "conf", "server")
+mqtt_topic = x:get("tv-sharp", "conf", "topic")
+mqtt_user = x:get("tv-sharp", "conf", "user")
+mqtt_pwd = x:get("tv-sharp", "conf", "pwd")
+
+mqtt_topic = mqtt_topic or "devices/tv"
+mqtt_topic_set = mqtt_topic .. "/set"
+
+local mqtt_msg = nil
+
+local client = mqtt.new()
+if not mqtt_user == nil then
+    client:login_set(mqtt_user, mqtt_pwd)
+end
+client.ON_MESSAGE = function(mid, topic, payload, qos, retain)
+    mqtt_msg = payload
+end
+client.ON_CONNECT = function()
+    client:subscribe(mqtt_topic_set)
+end
+client:connect(mqtt_server)
+
+local timeout = 100
+
+POWER_ON = "POWR1   \r"
+POWER_OFF = "POWR0   \r"
+POWER_GET = "POWR?   \r"
+POWER_INIT = "RSPR1   \r"
+
+function port_read(p)
+    local ret = ""
+    while true do
+        local err, data_read, size = p:read(1, timeout)
+        if err == rs232.RS232_ERR_NOERROR then
+            if data_read == "\r" then
+                return ret
+            else
+                ret = ret .. data_read
+            end
+        elseif err == rs232.RS232_ERR_TIMEOUT then
+            return ""
+        elseif err == rs232.RS232_ERR_PORT_CLOSED then
+            return nil
+        end
+    end
+end
+
+function port_open()
+    port_name = "/dev/ttyUSB0"
+    local e, p = rs232.open(port_name)
+
+    if e ~= rs232.RS232_ERR_NOERROR then
+        return
+    end
+    p:set_baud_rate(rs232.RS232_BAUD_9600)
+    return p
+end
+
+function port_msg(p, msg)
+    p:flush()
+    p:write(msg)
+    return port_read(p)
+end
+
+local port = port_open()
+
+local tv_offline = true
+local tv_state = ""
+local tv_update_last = 0
+
+local time_now = 0
+
+function mqtt_update(msg, force)
+    local ret
+    if msg ~= tv_state or force then
+        if client:publish(mqtt_topic, msg, 1) ~= nil then
+            tv_state = msg
+            tv_update_last = time_now
+        end
+    end
+    return ret
+end
+
+function proc_loop()
+    if client:loop() ~= true then
+        client:reconnect()
+        if client:loop() ~= true then
+            return false
+        end
+    end
+    local port_ret = port_read(port)
+    if port_ret == nil or port == nil then
+        port = port_open()
+        if port == nil then
+            return false
+        end
+    end
+    if mqtt_msg ~= nil then
+        port_ret = nil
+        if mqtt_msg == "ON" then
+            port_ret = port_msg(port, POWER_ON)
+        elseif mqtt_msg == "OFF" then
+            port_ret = port_msg(port, POWER_OFF)
+        end
+        if port_ret == "OK" then
+            local msg = mqtt_msg
+            mqtt_msg = nil
+            mqtt_update(msg, true)
+            return true
+        end
+    end
+    local port_ret = port_msg(port, POWER_GET)
+    if port_ret == nil then
+        port = port_open()
+        if port == nil then
+            return false
+        end
+    elseif port_ret == "" then
+        tv_offline = true
+    else
+        if tv_offline then
+            local x = port_msg(port, POWER_INIT)
+            if x == "OK" then
+                tv_offline = false
+            end
+        end
+        time_now = os.time()
+        local force_update = false
+        if time_now - tv_update_last > 300 then
+            force_update = true
+        end
+        if port_ret == "1" then
+            mqtt_update("ON", force_update)
+        elseif port_ret == "0" then
+            mqtt_update("OFF", force_update)
+        end
+    end
+
+    return true
+end
+
+while true do
+    --proc_loop()
+    err, ret = pcall(proc_loop)
+end
+
+conn:close()
+client:disconnect()
+
